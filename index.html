@@ -132,8 +132,10 @@
             analyzeButton.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i>分析中...';
 
             try {
+                const API_BASE = "https://api.keith.us.kg";
+
                 // 1. 发起分析任务
-                const startRes = await fetch('http://156.235.28.93:8000/api/analysis/start', {
+                const startRes = await fetch(`${API_BASE}/api/analysis/start`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ ticker: stockCode, show_reasoning: true })
@@ -147,7 +149,7 @@
                 let pollCount = 0;
                 while (!isComplete && pollCount < 60) { // 最多轮询60次，防止死循环
                     await new Promise(r => setTimeout(r, 1500));
-                    const statusRes = await fetch(`http://156.235.28.93:8000/api/analysis/${runId}/status`);
+                    const statusRes = await fetch(`${API_BASE}/api/analysis/${runId}/status`);
                     const statusData = await statusRes.json();
                     if (!statusData.success) throw new Error(statusData.message || '状态查询失败');
                     isComplete = statusData.data.is_complete;
@@ -156,7 +158,7 @@
                 if (!isComplete) throw new Error("分析超时，请稍后重试。");
 
                 // 3. 获取最终结果
-                const resultRes = await fetch(`http://156.235.28.93:8000/api/analysis/${runId}/result`);
+                const resultRes = await fetch(`${API_BASE}/api/analysis/${runId}/result`);
                 const resultJson = await resultRes.json();
                 if (!resultJson.success) throw new Error(resultJson.message || '获取结果失败');
                 const resultData = resultJson.data;
