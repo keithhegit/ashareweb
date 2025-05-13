@@ -357,6 +357,33 @@
             return 'text-gray-700';
         }
 
+        // 固定顺序的十个分析模块英文key
+        const AGENT_ORDER = [
+            'technicals',
+            'fundamentals',
+            'sentiment',
+            'valuation',
+            'bull_research',
+            'bear_research',
+            'debate_room',
+            'risk_manager',
+            'macro_analyst',
+            'portfolio_management'
+        ];
+        // 英文key到中文全称映射
+        const sectionTitleMap = {
+            technicals: '技术分析',
+            fundamentals: '基本面分析师，分析公司财务指标、盈利能力和增长潜力',
+            sentiment: '情感分析',
+            valuation: '估值分析',
+            bull_research: '多方研究分析',
+            bear_research: '空方研究分析',
+            debate_room: '辩论室分析',
+            risk_manager: '风险管理分析',
+            macro_analyst: '宏观分析',
+            portfolio_management: '投资组合管理分析'
+        };
+
         function renderReport(report) {
             reportContainer.innerHTML = ''; // Clear previous content or loader
 
@@ -376,62 +403,63 @@
             }
             reportContainer.appendChild(reportHeaderDiv);
 
-            report.sections.forEach((section, index) => {
+            // 按固定顺序渲染十个模块
+            AGENT_ORDER.forEach((agentKey, index) => {
+                const section = report.sections.find(s => s.title === agentKey);
                 const card = document.createElement('div');
                 card.className = 'bg-white rounded-xl shadow-lg overflow-hidden transition-all duration-300 ease-in-out';
 
                 const header = document.createElement('div');
                 header.className = 'card-header p-5 sm:p-6 border-b border-gray-200 flex justify-between items-center bg-gray-50 hover:bg-gray-100 transition-colors';
+                const displayTitle = sectionTitleMap[agentKey] || agentKey;
                 header.innerHTML = `
-                    <h3 class="text-xl sm:text-2xl font-semibold text-gray-700">${section.title}</h3>
+                    <h3 class="text-xl sm:text-2xl font-semibold text-gray-700">${displayTitle}</h3>
                     <i class="fas fa-chevron-down transform transition-transform duration-300"></i>
                 `;
 
                 const contentWrapper = document.createElement('div');
                 contentWrapper.className = 'card-content'; // Collapsed by default
-
                 const content = document.createElement('div');
                 content.className = 'report-section-content p-5 sm:p-6 text-sm sm:text-base leading-relaxed space-y-1';
-                content.style.fontFamily = "'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, Courier, monospace"; // Monospace for report text
+                content.style.fontFamily = "'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, Courier, monospace";
 
-                section.content.forEach(lineText => {
-                    const lineDiv = document.createElement('div');
-                    const indentMatch = lineText.match(/^(\s*)/);
-                    const indentation = indentMatch ? indentMatch[0].length : 0;
-                    
-                    let cleanedText = lineText.replace(/^[\s├└─●+-]*/, '').trim(); // Remove prefixes for cleaner display
-
-                    // Apply color to signals
-                    if (cleanedText.toLowerCase().includes('signal:') || cleanedText.toLowerCase().includes('perspective:')) {
-                        const parts = cleanedText.split(':');
-                        if (parts.length > 1) {
-                            const key = parts[0].trim();
-                            const value = parts.slice(1).join(':').trim();
-                            const valueSpan = `<span class="${getSignalColor(value)}">${value}</span>`;
-                            lineDiv.innerHTML = `${key}: ${valueSpan}`;
+                if (section && section.content && section.content.length > 0) {
+                    section.content.forEach(lineText => {
+                        const lineDiv = document.createElement('div');
+                        const indentMatch = lineText.match(/^(\s*)/);
+                        const indentation = indentMatch ? indentMatch[0].length : 0;
+                        let cleanedText = lineText.replace(/^[\s├└─●+-]*/, '').trim();
+                        if (cleanedText.toLowerCase().includes('signal:') || cleanedText.toLowerCase().includes('perspective:')) {
+                            const parts = cleanedText.split(':');
+                            if (parts.length > 1) {
+                                const key = parts[0].trim();
+                                const value = parts.slice(1).join(':').trim();
+                                const valueSpan = `<span class="${getSignalColor(value)}">${value}</span>`;
+                                lineDiv.innerHTML = `${key}: ${valueSpan}`;
+                            } else {
+                                lineDiv.textContent = cleanedText;
+                            }
                         } else {
-                           lineDiv.textContent = cleanedText;
+                            lineDiv.textContent = cleanedText;
                         }
-                    } else {
-                        lineDiv.textContent = cleanedText;
-                    }
-                    
-                    // Basic indentation styling
-                    if (indentation > 0) {
-                        lineDiv.style.marginLeft = `${indentation * 0.5}em`; // Adjust multiplier as needed
-                    }
-                    if (cleanedText.startsWith("Bullish Arguments:") || cleanedText.startsWith("Bearish Arguments:") || /^[A-Z][a-zA-Z\s_]+:$/.test(cleanedText) && !cleanedText.includes('%')) {
-                         lineDiv.classList.add('font-semibold', 'mt-2', 'text-gray-600');
-                    }
-
-                    // Special handling for LLM/API errors to make them more visible
-                    if (cleanedText.includes("LLM分析失败") || cleanedText.includes("API error occurred")) {
-                        lineDiv.classList.add('text-red-500', 'font-semibold', 'p-2', 'bg-red-50', 'rounded-md');
-                    }
-
-
-                    content.appendChild(lineDiv);
-                });
+                        if (indentation > 0) {
+                            lineDiv.style.marginLeft = `${indentation * 0.5}em`;
+                        }
+                        if (cleanedText.startsWith("Bullish Arguments:") || cleanedText.startsWith("Bearish Arguments:") || /^[A-Z][a-zA-Z\s_]+:$/.test(cleanedText) && !cleanedText.includes('%')) {
+                            lineDiv.classList.add('font-semibold', 'mt-2', 'text-gray-600');
+                        }
+                        if (cleanedText.includes("LLM分析失败") || cleanedText.includes("API error occurred")) {
+                            lineDiv.classList.add('text-red-500', 'font-semibold', 'p-2', 'bg-red-50', 'rounded-md');
+                        }
+                        content.appendChild(lineDiv);
+                    });
+                } else {
+                    // 无内容时显示"暂无分析"
+                    const emptyDiv = document.createElement('div');
+                    emptyDiv.className = 'text-gray-400 italic';
+                    emptyDiv.textContent = '暂无分析';
+                    content.appendChild(emptyDiv);
+                }
 
                 contentWrapper.appendChild(content);
                 card.appendChild(header);
@@ -446,8 +474,8 @@
                     icon.classList.toggle('fa-chevron-up');
                 });
 
-                // Auto-expand the first few cards for better initial view
-                if (index < 2) { // Expand first 2 cards
+                // 默认展开前2个卡片
+                if (index < 2) {
                     header.click();
                 }
             });
