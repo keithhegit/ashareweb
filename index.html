@@ -288,15 +288,35 @@
 
         // 适配后端API返回结构
         function parseReportDataFromApi(apiData, stockCode) {
-            // 新增：如果是字符画文本，自动解析为结构化数据
+            // 1. 字符画文本
             if (typeof apiData === 'string') {
                 return parseTerminalReportFromText(apiData, stockCode);
             }
-            // 兼容原有 JSON 结构
+            // 2. 标准 sections 结构
+            if (apiData.sections) {
+                return {
+                    title: apiData.title || `股票代码 ${stockCode} 投资分析报告`,
+                    analysisDate: apiData.analysisDate || '',
+                    sections: apiData.sections
+                };
+            }
+            // 3. agent_results 结构自动转为 sections
+            if (apiData.agent_results) {
+                const sections = Object.entries(apiData.agent_results).map(([key, value]) => ({
+                    title: key,
+                    content: [JSON.stringify(value, null, 2)]
+                }));
+                return {
+                    title: apiData.title || `股票代码 ${stockCode} 投资分析报告`,
+                    analysisDate: apiData.completion_time || '',
+                    sections
+                };
+            }
+            // 4. 兜底
             return {
                 title: apiData.title || `股票代码 ${stockCode} 投资分析报告`,
                 analysisDate: apiData.analysisDate || '',
-                sections: apiData.sections || []
+                sections: []
             };
         }
 
