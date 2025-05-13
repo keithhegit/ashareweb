@@ -288,13 +288,43 @@
 
         // 适配后端API返回结构
         function parseReportDataFromApi(apiData, stockCode) {
-            // 假设后端返回结构为 { title, analysisDate, sections: [{title, content: [string]}] }
-            // 如需适配实际结构请调整
+            // 新增：如果是字符画文本，自动解析为结构化数据
+            if (typeof apiData === 'string') {
+                return parseTerminalReportFromText(apiData, stockCode);
+            }
+            // 兼容原有 JSON 结构
             return {
                 title: apiData.title || `股票代码 ${stockCode} 投资分析报告`,
                 analysisDate: apiData.analysisDate || '',
                 sections: apiData.sections || []
             };
+        }
+
+        // 新增：解析终端字符画风格报告为结构化数据
+        function parseTerminalReportFromText(text, stockCode) {
+            // 1. 提取主标题
+            const titleMatch = text.match(/股票代码\s*([0-9A-Za-z]+) 投资分析报告/);
+            const title = titleMatch ? `股票代码 ${titleMatch[1]} 投资分析报告` : `投资分析报告`;
+            // 2. 提取分析区间
+            const dateMatch = text.match(/分析区间: ([^\n]+)/);
+            const analysisDate = dateMatch ? dateMatch[1].trim() : '';
+            // 3. 提取所有区块
+            const sectionRegex = /╔[^\n]*╗([\s\S]*?)╚[^\n]*╝/g;
+            const matches = [...text.matchAll(sectionRegex)];
+            const sections = matches.map(match => {
+                const block = match[0];
+                // 提取区块标题
+                const titleMatch = block.match(/═+ ([^═]+) ═+/);
+                const sectionTitle = titleMatch ? titleMatch[1].replace(/分析$/, '').replace(/^[^\u4e00-\u9fa5\w]+/, '').trim() : '分析';
+                // 提取内容（去除首尾框线）
+                const contentRaw = block.replace(/╔[^\n]*╗/, '').replace(/╚[^\n]*╝/, '').trim();
+                // 按行分割
+                const contentLines = contentRaw.split(/\n/).map(line => line.replace(/^\s*║\s?/, '').replace(/\s*║\s*$/, ''));
+                // 过滤空行
+                const content = contentLines.filter(l => l.trim().length > 0);
+                return { title: sectionTitle, content };
+            });
+            return { title, analysisDate, sections };
         }
 
         function getSignalColor(signalText) {
