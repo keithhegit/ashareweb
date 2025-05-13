@@ -113,12 +113,47 @@
         const errorTextP = document.getElementById('error-text');
         const initialPromptDiv = document.querySelector('.initial-prompt');
 
+        // 新增进度条元素
+        let progressBarDiv = document.getElementById('progress-bar-div');
+        if (!progressBarDiv) {
+            progressBarDiv = document.createElement('div');
+            progressBarDiv.id = 'progress-bar-div';
+            progressBarDiv.className = 'w-full max-w-xl mx-auto my-6';
+            progressBarDiv.innerHTML = `
+                <div class="w-full bg-gray-200 rounded-full h-4">
+                    <div id="progress-bar" class="bg-blue-500 h-4 rounded-full transition-all duration-500" style="width: 0%"></div>
+                </div>
+                <div id="progress-label" class="text-center text-sm text-gray-600 mt-2">分析时间较长，请耐心等待...</div>
+            `;
+            loader.parentNode.insertBefore(progressBarDiv, loader.nextSibling);
+        }
+        const progressBar = () => document.getElementById('progress-bar');
+        const progressLabel = () => document.getElementById('progress-label');
+
+        // 进度里程碑节点（可根据后端日志阶段调整）
+        const progressMilestones = [
+            { key: 'price_history', label: '获取历史行情数据', percent: 10 },
+            { key: 'financial_metrics', label: '获取财务指标', percent: 20 },
+            { key: 'financial_statements', label: '获取财务报表', percent: 30 },
+            { key: 'market_data', label: '市场数据处理', percent: 40 },
+            { key: 'technical_analysis', label: '技术分析', percent: 50 },
+            { key: 'fundamental_analysis', label: '基本面分析', percent: 60 },
+            { key: 'sentiment_analysis', label: '情感分析', percent: 70 },
+            { key: 'valuation_analysis', label: '估值分析', percent: 80 },
+            { key: 'macro_analysis', label: '宏观分析', percent: 90 },
+            { key: 'portfolio_management', label: '投资组合管理', percent: 100 },
+        ];
+
         // --- Event Listeners ---
         analyzeButton.addEventListener('click', handleAnalyze);
 
         // --- Functions ---
-        async function handleAnalyze() {
-            const stockCode = stockCodeInput.value.trim();
+        let lastRunId = null;
+        let lastStockCode = null;
+        let polling = false;
+
+        async function handleAnalyze(runId = null, stockCodeOverride = null) {
+            const stockCode = stockCodeOverride || stockCodeInput.value.trim();
             if (!stockCode) {
                 showError("请输入股票代码。");
                 return;
@@ -128,53 +163,118 @@
             hideError();
             reportContainer.innerHTML = '';
             loader.classList.remove('hidden');
+            progressBarDiv.classList.remove('hidden');
+            updateProgress(0, '分析时间较长，请耐心等待...');
             analyzeButton.disabled = true;
             analyzeButton.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i>分析中...';
+            polling = true;
 
             try {
                 const API_BASE = "https://api.keith.us.kg";
+                let currentRunId = runId;
+                lastStockCode = stockCode;
 
-                // 1. 发起分析任务
-                const startRes = await fetch(`${API_BASE}/api/analysis/start`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ ticker: stockCode, show_reasoning: true })
-                });
-                const startData = await startRes.json();
-                if (!startData.success) throw new Error(startData.message || '分析任务启动失败');
-                const runId = startData.data.run_id;
+                // 1. 发起分析任务（如未传入runId）
+                if (!currentRunId) {
+                    const startRes = await fetch(`${API_BASE}/api/analysis/start`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ ticker: stockCode, show_reasoning: true })
+                    });
+                    const startData = await startRes.json();
+                    if (!startData.success) throw new Error(startData.message || '分析任务启动失败');
+                    currentRunId = startData.data.run_id;
+                }
+                lastRunId = currentRunId;
 
-                // 2. 轮询任务状态
+                // 2. 轮询任务状态（最大180次，约4.5分钟）
                 let isComplete = false;
                 let pollCount = 0;
-                while (!isComplete && pollCount < 60) { // 最多轮询60次，防止死循环
+                let lastMilestone = 0;
+                while (!isComplete && pollCount < 180 && polling) {
                     await new Promise(r => setTimeout(r, 1500));
-                    const statusRes = await fetch(`${API_BASE}/api/analysis/${runId}/status`);
+                    const statusRes = await fetch(`${API_BASE}/api/analysis/${currentRunId}/status`);
                     const statusData = await statusRes.json();
                     if (!statusData.success) throw new Error(statusData.message || '状态查询失败');
                     isComplete = statusData.data.is_complete;
+                    // 动态进度条（根据已完成阶段）
+                    if (statusData.data && statusData.data.data_collected) {
+                        const collected = statusData.data.data_collected;
+                        let percent = 0;
+                        let label = '分析时间较长，请耐心等待...';
+                        for (let i = 0; i < progressMilestones.length; i++) {
+                            const m = progressMilestones[i];
+                            if (collected[m.key]) {
+                                percent = m.percent;
+                                label = m.label;
+                                lastMilestone = percent;
+                            }
+                        }
+                        updateProgress(percent, label);
+                    } else {
+                        // 轮询进度条（未获取到阶段时，线性推进）
+                        let percent = Math.min(100, Math.floor((pollCount / 180) * 100));
+                        updateProgress(percent, '分析时间较长，请耐心等待...');
+                    }
                     pollCount++;
                 }
-                if (!isComplete) throw new Error("分析超时，请稍后重试。");
+                if (!isComplete) {
+                    updateProgress(lastMilestone, '分析超时，可重试或继续等待');
+                    showTimeoutOptions();
+                    throw new Error("分析超时，请稍后重试。");
+                }
 
                 // 3. 获取最终结果
-                const resultRes = await fetch(`${API_BASE}/api/analysis/${runId}/result`);
+                const resultRes = await fetch(`${API_BASE}/api/analysis/${currentRunId}/result`);
                 const resultJson = await resultRes.json();
                 if (!resultJson.success) throw new Error(resultJson.message || '获取结果失败');
                 const resultData = resultJson.data;
 
                 // 4. 渲染
-                const parsedReport = parseReportDataFromApi(resultData, stockCode);
-                renderReport(parsedReport);
+                updateProgress(100, '分析完成！');
+                renderReport(parseReportDataFromApi(resultData, stockCode));
                 loader.classList.add('hidden');
+                progressBarDiv.classList.add('hidden');
             } catch (e) {
                 console.error("Error:", e);
                 showError(e.message || "分析失败，请重试。");
                 loader.classList.add('hidden');
-            } finally {
                 analyzeButton.disabled = false;
                 analyzeButton.innerHTML = '<i class="fas fa-search mr-2"></i>立即分析';
+            } finally {
+                polling = false;
             }
+        }
+
+        function updateProgress(percent, label) {
+            if (progressBar()) progressBar().style.width = percent + '%';
+            if (progressLabel()) progressLabel().textContent = label + (percent ? `（${percent}%）` : '');
+        }
+
+        function showTimeoutOptions() {
+            // 显示"重试"与"继续等待"按钮
+            let timeoutDiv = document.getElementById('timeout-options');
+            if (!timeoutDiv) {
+                timeoutDiv = document.createElement('div');
+                timeoutDiv.id = 'timeout-options';
+                timeoutDiv.className = 'flex justify-center gap-4 mt-4';
+                timeoutDiv.innerHTML = `
+                    <button id="retry-btn" class="bg-blue-500 hover:bg-blue-600 text-white px-6 py-2 rounded-lg font-semibold">重试</button>
+                    <button id="continue-btn" class="bg-gray-400 hover:bg-gray-500 text-white px-6 py-2 rounded-lg font-semibold">继续等待</button>
+                `;
+                errorMessageDiv.parentNode.insertBefore(timeoutDiv, errorMessageDiv.nextSibling);
+            }
+            timeoutDiv.classList.remove('hidden');
+            document.getElementById('retry-btn').onclick = () => {
+                timeoutDiv.classList.add('hidden');
+                handleAnalyze();
+            };
+            document.getElementById('continue-btn').onclick = () => {
+                timeoutDiv.classList.add('hidden');
+                if (lastRunId && lastStockCode) {
+                    handleAnalyze(lastRunId, lastStockCode);
+                }
+            };
         }
 
         function showError(message) {
